@@ -2,9 +2,15 @@ import type { createClient } from "@/lib/supabase/server";
 import { isDietDayHit } from "@/lib/diet";
 import { isMissingTableError } from "@/lib/errors";
 import { todayKey } from "@/lib/dates";
-import { DEFAULT_TARGETS, isBlockScheduled, type DailyValues, type WorkoutBlock } from "@/lib/types";
+import { DEFAULT_TARGETS, isBlockScheduled, type DailyValues, type Exercise, type WorkoutBlock } from "@/lib/types";
 
 export type DayStatus = "future" | "none" | "partial" | "full";
+
+export type WorkoutSnapshot = {
+  blockTitle: string;
+  exercises: Exercise[];
+  checkedIndices: number[] | null;
+};
 
 export type DayCell = {
   dateKey: string;
@@ -12,9 +18,12 @@ export type DayCell = {
   status: DayStatus;
   log: DailyValues | null;
   targets: DailyValues;
+  /** The block CURRENTLY assigned to this weekday — used for status/aggregate math and for showing "what's scheduled" on not-yet-done days. Not historically accurate for done days; use `snapshot` for those. */
   block: WorkoutBlock | null;
   isScheduled: boolean;
   workoutDone: boolean;
+  /** Frozen record of what was actually done, captured at the moment this day was marked done. `null` if not done yet, or if the completion row predates snapshotting (migration 004). */
+  snapshot: WorkoutSnapshot | null;
 };
 
 export type MonthCalendar = {
@@ -132,7 +141,7 @@ export async function getMonthCalendar(
       .eq("user_id", userId),
     supabase
       .from("daily_workout_completions")
-      .select("completion_date")
+      .select("completion_date, block_title, exercises, checked_exercises")
       .eq("user_id", userId)
       .gte("completion_date", monthStart)
       .lte("completion_date", monthEnd),
@@ -149,7 +158,10 @@ export async function getMonthCalendar(
   const blocks: WorkoutBlock[] = blocksRaw ?? [];
   const blocksByDow = new Map(blocks.map((b) => [b.day_of_week, b]));
   const logsByDate = new Map((logsRaw ?? []).map((r) => [r.log_date as string, r as DailyValues]));
-  const completedDateKeys = new Set((completionsRaw ?? []).map((c) => c.completion_date as string));
+  const completionsByDate = new Map(
+    (completionsRaw ?? []).map((c) => [c.completion_date as string, c])
+  );
+  const completedDateKeys = new Set(completionsByDate.keys());
 
   let fullCount = 0;
   let partialCount = 0;
@@ -168,6 +180,16 @@ export async function getMonthCalendar(
     const isScheduled = block ? isBlockScheduled(block) : false;
     const workoutDone = completedDateKeys.has(dateKey);
     const log = logsByDate.get(dateKey) ?? null;
+
+    const completion = completionsByDate.get(dateKey);
+    const snapshot: WorkoutSnapshot | null =
+      completion && completion.block_title
+        ? {
+            blockTitle: completion.block_title as string,
+            exercises: (completion.exercises ?? []) as Exercise[],
+            checkedIndices: (completion.checked_exercises as number[] | null) ?? null,
+          }
+        : null;
 
     let status: DayStatus;
 
@@ -189,7 +211,7 @@ export async function getMonthCalendar(
       if (dietOk) dietHit++;
     }
 
-    cells.push({ dateKey, day, status, log, targets: t, block, isScheduled, workoutDone });
+    cells.push({ dateKey, day, status, log, targets: t, block, isScheduled, workoutDone, snapshot });
   }
 
   const firstDow = new Date(y, m - 1, 1).getDay();

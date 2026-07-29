@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ProgressBar } from "@/components/ProgressBar";
 import { DAY_SHORT } from "@/lib/dates";
+import { isExerciseChecked } from "@/lib/workoutSnapshot";
 import type { DayCell, DayStatus } from "@/lib/calendarStats";
 
 export function CalendarMonth({
@@ -151,16 +152,51 @@ function DayDetailModal({ day, onClose }: { day: DayCell; onClose: () => void })
 
           <div className="border-t border-gray-100 pt-4">
             <h3 className="mb-2 text-sm font-medium text-gray-600">Workout</h3>
-            {day.isScheduled && day.block ? (
+            {day.workoutDone ? (
+              day.snapshot ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-800">{day.snapshot.blockTitle}</span>
+                    <span className="shrink-0 rounded-full bg-brand-100 px-3 py-1 text-xs font-medium text-brand-700">
+                      Done ✓
+                    </span>
+                  </div>
+                  {day.snapshot.exercises.length > 0 ? (
+                    <ul className="mt-2 space-y-1">
+                      {day.snapshot.exercises.map((ex, i) => {
+                        const tracked = day.snapshot!.checkedIndices !== null;
+                        const checked = isExerciseChecked(day.snapshot!.checkedIndices, i);
+                        return (
+                          <li key={i} className="flex items-center justify-between text-sm">
+                            <span className={checked ? "text-gray-400 line-through" : "text-gray-700"}>
+                              {tracked ? (checked ? "☑ " : "☐ ") : ""}
+                              {ex.name}
+                            </span>
+                            <span className="shrink-0 text-xs text-gray-400">
+                              {ex.sets}×{ex.reps}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-sm text-gray-400">No exercises were listed for this workout.</p>
+                  )}
+                  {day.snapshot.checkedIndices === null && day.snapshot.exercises.length > 0 && (
+                    <p className="mt-2 text-xs text-gray-400">
+                      Per-exercise tracking wasn&rsquo;t used for this entry.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-400">No detailed record saved for this day.</p>
+              )
+            ) : day.isScheduled && day.block ? (
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-800">{day.block.title}</span>
-                  <span
-                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                      day.workoutDone ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-500"
-                    }`}
-                  >
-                    {day.workoutDone ? "Done ✓" : "Not done"}
+                  <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
+                    Not done
                   </span>
                 </div>
                 {day.block.exercises.length > 0 ? (

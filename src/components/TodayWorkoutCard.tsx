@@ -1,5 +1,4 @@
-import { markWorkoutDone, toggleWorkoutCompletion } from "@/lib/actions/workouts";
-import { ExerciseChecklist } from "@/components/ExerciseChecklist";
+import { WorkoutChecklistCard } from "@/components/WorkoutChecklistCard";
 import type { WorkoutBlock } from "@/lib/types";
 
 /**
@@ -9,18 +8,18 @@ import type { WorkoutBlock } from "@/lib/types";
  */
 export function TodayWorkoutCard({
   today,
-  userId,
   todayBlock,
   todayIsScheduled,
   todayDone,
+  todayCheckedIndices,
   blocksError,
   blocksMigrationPending,
 }: {
   today: string;
-  userId: string;
   todayBlock: WorkoutBlock | null;
   todayIsScheduled: boolean;
   todayDone: boolean;
+  todayCheckedIndices: number[] | null;
   blocksError: boolean;
   blocksMigrationPending: boolean;
 }) {
@@ -35,28 +34,13 @@ export function TodayWorkoutCard({
           Workout scheduler isn&rsquo;t set up yet — run supabase/migrations/002_workout_blocks.sql.
         </p>
       ) : todayIsScheduled && todayBlock ? (
-        <>
-          <div className="text-sm font-medium text-gray-800">{todayBlock.title}</div>
-
-          {todayBlock.exercises.length > 0 ? (
-            <ExerciseChecklist
-              storageKey={`exercise-check:${userId}:${today}:${todayBlock.id}`}
-              exercises={todayBlock.exercises}
-              onAllChecked={markWorkoutDone.bind(null, today)}
-            />
-          ) : (
-            <p className="text-sm text-gray-400">
-              No exercises added for this day yet — add some from the Workouts tab.
-            </p>
-          )}
-
-          <form action={toggleWorkoutCompletion} className="pt-2">
-            <input type="hidden" name="date" value={today} />
-            <button type="submit" className={`w-full ${todayDone ? "btn-primary" : "btn-secondary"}`}>
-              {todayDone ? "Done for today ✓ (tap to undo)" : "Mark day done"}
-            </button>
-          </form>
-        </>
+        <WorkoutChecklistCard
+          date={today}
+          blockTitle={todayBlock.title}
+          exercises={todayBlock.exercises}
+          initialDone={todayDone}
+          initialCheckedIndices={todayCheckedIndices}
+        />
       ) : (
         <p className="text-sm text-gray-500">Rest day — nothing scheduled.</p>
       )}

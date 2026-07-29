@@ -36,7 +36,7 @@ export default async function DailyPage() {
         .maybeSingle(),
       supabase
         .from("daily_workout_completions")
-        .select("id")
+        .select("id, checked_exercises")
         .eq("user_id", user!.id)
         .eq("completion_date", today)
         .maybeSingle(),
@@ -47,6 +47,7 @@ export default async function DailyPage() {
   const todayBlock = (blockRaw as WorkoutBlock | null) ?? null;
   const todayIsScheduled = todayBlock ? isBlockScheduled(todayBlock) : false;
   const todayDone = !!completion;
+  const todayCheckedIndices = (completion?.checked_exercises as number[] | null) ?? null;
 
   return (
     <div className="space-y-6">
@@ -140,10 +141,10 @@ export default async function DailyPage() {
 
       <TodayWorkoutCard
         today={today}
-        userId={user!.id}
         todayBlock={todayBlock}
         todayIsScheduled={todayIsScheduled}
         todayDone={todayDone}
+        todayCheckedIndices={todayCheckedIndices}
         blocksError={!!blockError && !isMissingTableError(blockError)}
         blocksMigrationPending={isMissingTableError(blockError)}
       />

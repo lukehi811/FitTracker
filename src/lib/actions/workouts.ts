@@ -70,13 +70,24 @@ export async function saveBlock(
 }
 
 /**
- * One-way "mark done" — inserts if missing, never removes. Used to
- * auto-complete the day when the exercise checklist gets fully checked off,
- * as opposed to toggleWorkoutCompletion (the explicit button) which flips
- * either direction. Keeping these separate means finishing the checklist
- * can never accidentally *un*-mark an already-done day.
+ * Marks a day done and (re)writes its snapshot in one upsert — used both
+ * for the initial "mark done" (auto-triggered by finishing the checklist,
+ * or the explicit button, with whatever's currently checked) and to keep
+ * the snapshot fresh if the checklist gets edited after the day is already
+ * done. `checkedIndices` is `null` when there's no per-exercise tracking to
+ * record (the retroactive catch-up control has no checklist to read from).
+ *
+ * Snapshotting matters because `exercises`/`block_title` are frozen at this
+ * moment — workout_blocks can be renamed or dragged to a different day
+ * later, and this record should keep showing what was actually done, not
+ * whatever currently happens to be scheduled on that weekday.
  */
-export async function markWorkoutDone(date: string) {
+export async function saveWorkoutSnapshot(
+  date: string,
+  blockTitle: string,
+  exercises: Exercise[],
+  checkedIndices: number[] | null
+) {
   if (!date) return;
 
   const supabase = createClient();
@@ -85,31 +96,11 @@ export async function markWorkoutDone(date: string) {
   } = await supabase.auth.getUser();
   if (!user) return;
 
-  const { data: existing } = await supabase
-    .from("daily_workout_completions")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("completion_date", date)
-    .maybeSingle();
-
-  if (!existing) {
-    await supabase.from("daily_workout_completions").insert({ user_id: user.id, completion_date: date });
-  }
-
-  revalidatePath("/dashboard");
-  revalidatePath("/daily");
-  revalidatePath("/workouts");
-}
-
-export async function toggleWorkoutCompletion(formData: FormData) {
-  const date = String(formData.get("date") ?? "");
-  if (!date) return;
-
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
+  const cleanExercises = exercises.map((e) => ({
+    name: e.name,
+    sets: e.sets,
+    reps: e.reps,
+  }));
 
   const { data: existing } = await supabase
     .from("daily_workout_completions")
@@ -119,13 +110,46 @@ export async function toggleWorkoutCompletion(formData: FormData) {
     .maybeSingle();
 
   if (existing) {
-    await supabase.from("daily_workout_completions").delete().eq("id", existing.id);
-  } else {
     await supabase
       .from("daily_workout_completions")
-      .insert({ user_id: user.id, completion_date: date });
+      .update({
+        block_title: blockTitle,
+        exercises: cleanExercises,
+        checked_exercises: checkedIndices,
+      })
+      .eq("id", existing.id);
+  } else {
+    await supabase.from("daily_workout_completions").insert({
+      user_id: user.id,
+      completion_date: date,
+      block_title: blockTitle,
+      exercises: cleanExercises,
+      checked_exercises: checkedIndices,
+    });
   }
 
   revalidatePath("/dashboard");
-  revalidatePath("/workouts");
+  revalidatePath("/daily");
+  revalidatePath("/stats");
+}
+
+/** Un-marks a day done — deletes the completion row (and its snapshot) outright. */
+export async function unmarkWorkoutDone(date: string) {
+  if (!date) return;
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase
+    .from("daily_workout_completions")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("completion_date", date);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/daily");
+  revalidatePath("/stats");
 }

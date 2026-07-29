@@ -19,6 +19,7 @@ export type DashboardStats = {
   todayBlock: WorkoutBlock | null;
   todayIsScheduled: boolean;
   todayDone: boolean;
+  todayCheckedIndices: number[] | null;
   dietDaysHit: number;
   elapsedWeekDays: number;
 };
@@ -71,7 +72,7 @@ export async function getDashboardStats(
       .eq("user_id", userId),
     supabase
       .from("daily_workout_completions")
-      .select("completion_date")
+      .select("completion_date, checked_exercises")
       .eq("user_id", userId)
       .gte("completion_date", historyStart),
   ]);
@@ -89,6 +90,8 @@ export async function getDashboardStats(
   const todayBlock = blocks.find((b) => b.day_of_week === todayDow) ?? null;
   const todayIsScheduled = todayBlock ? isBlockScheduled(todayBlock) : false;
   const todayDone = completedDateKeys.has(today);
+  const todayCompletion = (completionsRaw ?? []).find((c) => c.completion_date === today);
+  const todayCheckedIndices = (todayCompletion?.checked_exercises as number[] | null) ?? null;
 
   const weekLogsByDate = new Map(
     (weekLogsRaw ?? []).map((row) => [row.log_date, row as DailyValues])
@@ -121,6 +124,7 @@ export async function getDashboardStats(
     todayBlock,
     todayIsScheduled,
     todayDone,
+    todayCheckedIndices,
     dietDaysHit,
     elapsedWeekDays: elapsedWeekKeys.length,
   };

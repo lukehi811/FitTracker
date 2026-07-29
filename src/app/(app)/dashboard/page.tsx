@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { toggleWorkoutCompletion } from "@/lib/actions/workouts";
+import { saveWorkoutSnapshot, unmarkWorkoutDone } from "@/lib/actions/workouts";
 import { ProgressBar } from "@/components/ProgressBar";
 import { TodayWorkoutCard } from "@/components/TodayWorkoutCard";
 import { getDashboardStats } from "@/lib/dashboardStats";
@@ -73,10 +73,10 @@ export default async function DashboardPage() {
 
       <TodayWorkoutCard
         today={today}
-        userId={user!.id}
         todayBlock={stats.todayBlock}
         todayIsScheduled={stats.todayIsScheduled}
         todayDone={stats.todayDone}
+        todayCheckedIndices={stats.todayCheckedIndices}
         blocksError={stats.blocksError}
         blocksMigrationPending={stats.blocksMigrationPending}
       />
@@ -143,8 +143,13 @@ export default async function DashboardPage() {
                   </div>
                 </div>
                 {day.isScheduled && (
-                  <form action={toggleWorkoutCompletion}>
-                    <input type="hidden" name="date" value={day.dateKey} />
+                  <form
+                    action={
+                      day.done
+                        ? unmarkWorkoutDone.bind(null, day.dateKey)
+                        : saveWorkoutSnapshot.bind(null, day.dateKey, day.block!.title, day.block!.exercises, null)
+                    }
+                  >
                     <button type="submit" className={day.done ? "btn-primary" : "btn-secondary"}>
                       {day.done ? "Done ✓" : "Mark done"}
                     </button>
