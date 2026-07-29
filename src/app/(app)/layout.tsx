@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
@@ -31,14 +32,19 @@ export default async function AppLayout({
           <span className="text-lg font-semibold text-brand-700">
             FitTracker
           </span>
-          <form action="/auth/signout" method="post">
-            <button
-              type="submit"
-              className="text-sm font-medium text-gray-400 hover:text-gray-600"
-            >
-              Sign out ({displayName})
-            </button>
-          </form>
+          <div className="flex items-center gap-4">
+            <Link href="/friends" className="text-sm font-medium text-gray-400 hover:text-gray-600">
+              Friends
+            </Link>
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
+                className="text-sm font-medium text-gray-400 hover:text-gray-600"
+              >
+                Sign out ({displayName})
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
