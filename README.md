@@ -57,7 +57,7 @@ src/lib/actions/      # server actions (form submissions: auth, goals, daily, wo
 src/lib/supabase/     # Supabase client helpers (browser, server, middleware)
 src/components/       # NavBar, ProgressBar
 supabase/schema.sql   # full Postgres schema + RLS policies, run once in the Supabase SQL editor
-middleware.ts         # keeps Supabase session cookies fresh, redirects unauthenticated users to /login
+src/middleware.ts     # keeps Supabase session cookies fresh, redirects unauthenticated users to /login
 ```
 
 ## Notes
