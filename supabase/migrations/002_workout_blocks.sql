@@ -98,13 +98,25 @@ grant execute on function public.reorder_workout_blocks(uuid[], smallint[]) to a
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- Backfill: give every existing user 7 default blocks (idempotent — safe
--- to re-run, `on conflict do nothing` skips users who already have them).
+-- to re-run, WHERE NOT EXISTS skips users who already have them).
+--
+-- This can't use `ON CONFLICT (user_id, day_of_week) DO NOTHING`: that
+-- constraint is declared DEFERRABLE (see workout_blocks_user_day_unique
+-- above, needed so reorder_workout_blocks can swap two days in one
+-- transaction), and Postgres does not allow ON CONFLICT to target a
+-- deferrable unique constraint as its arbiter — "ON CONFLICT does not
+-- support deferrable unique constraints/exclusion constraints as
+-- arbiters". WHERE NOT EXISTS gets the same "insert only if missing"
+-- behavior without needing an arbiter at all.
 -- ─────────────────────────────────────────────────────────────────────────
 insert into public.workout_blocks (user_id, day_of_week, title, exercises)
 select u.id, d.day_of_week, 'Rest Day', '[]'::jsonb
 from auth.users u
 cross join generate_series(0, 6) as d(day_of_week)
-on conflict (user_id, day_of_week) do nothing;
+where not exists (
+  select 1 from public.workout_blocks wb
+  where wb.user_id = u.id and wb.day_of_week = d.day_of_week
+);
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- Extend the existing new-user trigger function so future signups also get
