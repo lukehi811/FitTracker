@@ -182,6 +182,10 @@ export default async function DashboardPage() {
           </ul>
         </details>
       )}
+
+      <Link href="/stats" className="card block text-center text-brand-600">
+        View monthly consistency →
+      </Link>
     </div>
   );
 }
