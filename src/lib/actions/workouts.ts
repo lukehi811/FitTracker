@@ -69,6 +69,38 @@ export async function saveBlock(
   return data as WorkoutBlock;
 }
 
+/**
+ * One-way "mark done" — inserts if missing, never removes. Used to
+ * auto-complete the day when the exercise checklist gets fully checked off,
+ * as opposed to toggleWorkoutCompletion (the explicit button) which flips
+ * either direction. Keeping these separate means finishing the checklist
+ * can never accidentally *un*-mark an already-done day.
+ */
+export async function markWorkoutDone(date: string) {
+  if (!date) return;
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: existing } = await supabase
+    .from("daily_workout_completions")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("completion_date", date)
+    .maybeSingle();
+
+  if (!existing) {
+    await supabase.from("daily_workout_completions").insert({ user_id: user.id, completion_date: date });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/daily");
+  revalidatePath("/workouts");
+}
+
 export async function toggleWorkoutCompletion(formData: FormData) {
   const date = String(formData.get("date") ?? "");
   if (!date) return;

@@ -1,8 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { saveLog } from "@/lib/actions/daily";
-import { toggleWorkoutCompletion } from "@/lib/actions/workouts";
 import { ProgressBar } from "@/components/ProgressBar";
-import { ExerciseChecklist } from "@/components/ExerciseChecklist";
+import { TodayWorkoutCard } from "@/components/TodayWorkoutCard";
 import { isMissingTableError } from "@/lib/errors";
 import { todayKey } from "@/lib/dates";
 import { DEFAULT_TARGETS, isBlockScheduled, type WorkoutBlock } from "@/lib/types";
@@ -139,44 +138,15 @@ export default async function DailyPage() {
         </form>
       </div>
 
-      <div className="card space-y-3">
-        <h2 className="font-medium text-gray-700">Workout</h2>
-
-        {blockError && !isMissingTableError(blockError) ? (
-          <p className="text-sm text-red-600">Couldn&rsquo;t load today&rsquo;s workout.</p>
-        ) : blockError ? (
-          <p className="text-sm text-amber-600">
-            Workout scheduler isn&rsquo;t set up yet — run supabase/migrations/002_workout_blocks.sql.
-          </p>
-        ) : todayIsScheduled && todayBlock ? (
-          <>
-            <div className="text-sm font-medium text-gray-800">{todayBlock.title}</div>
-
-            {todayBlock.exercises.length > 0 ? (
-              <ExerciseChecklist
-                storageKey={`exercise-check:${user!.id}:${today}:${todayBlock.id}`}
-                exercises={todayBlock.exercises}
-              />
-            ) : (
-              <p className="text-sm text-gray-400">
-                No exercises added for this day yet — add some from the Workouts tab.
-              </p>
-            )}
-
-            <form action={toggleWorkoutCompletion} className="pt-2">
-              <input type="hidden" name="date" value={today} />
-              <button
-                type="submit"
-                className={`w-full ${todayDone ? "btn-primary" : "btn-secondary"}`}
-              >
-                {todayDone ? "Done for today ✓ (tap to undo)" : "Mark day done"}
-              </button>
-            </form>
-          </>
-        ) : (
-          <p className="text-sm text-gray-500">Rest day — nothing scheduled.</p>
-        )}
-      </div>
+      <TodayWorkoutCard
+        today={today}
+        userId={user!.id}
+        todayBlock={todayBlock}
+        todayIsScheduled={todayIsScheduled}
+        todayDone={todayDone}
+        blocksError={!!blockError && !isMissingTableError(blockError)}
+        blocksMigrationPending={isMissingTableError(blockError)}
+      />
     </div>
   );
 }

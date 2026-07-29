@@ -4,17 +4,22 @@ import { useEffect, useState } from "react";
 import type { Exercise } from "@/lib/types";
 
 /**
- * "Check off as you go" aid while doing today's workout. Persisted to
- * localStorage only (keyed by user+date+block) — it's a personal in-session
- * checklist, not tracked server-side. Marking the day done is a separate,
- * independent action (see the "Mark day done" button on the Daily page).
+ * "Check off as you go" aid while doing today's workout. The checked state
+ * itself is persisted to localStorage only (keyed by user+date+block) — not
+ * tracked server-side. Checking off the last exercise fires `onAllChecked`
+ * once, which the caller wires to a one-way "mark done" server action;
+ * unchecking never fires anything, so it can't un-mark an already-done day.
+ * Same component/storageKey is used on both Dashboard and Daily so the
+ * checked state (and the completion it can trigger) matches on either page.
  */
 export function ExerciseChecklist({
   storageKey,
   exercises,
+  onAllChecked,
 }: {
   storageKey: string;
   exercises: Exercise[];
+  onAllChecked?: () => void;
 }) {
   const [checked, setChecked] = useState<Set<number>>(new Set());
 
@@ -30,14 +35,21 @@ export function ExerciseChecklist({
 
   function toggle(index: number) {
     setChecked((prev) => {
+      const wasChecked = prev.has(index);
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
+      if (wasChecked) next.delete(index);
       else next.add(index);
+
       try {
         localStorage.setItem(storageKey, JSON.stringify([...next]));
       } catch {
         // localStorage unavailable — checklist just won't persist, non-fatal
       }
+
+      if (!wasChecked && next.size === exercises.length) {
+        onAllChecked?.();
+      }
+
       return next;
     });
   }
