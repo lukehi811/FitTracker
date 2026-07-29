@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { saveLog } from "@/lib/actions/daily";
+import { toggleWorkoutCompletion } from "@/lib/actions/workouts";
 import { ProgressBar } from "@/components/ProgressBar";
 import { computeStreak, computeWeeklyCompletion } from "@/lib/streak";
 import { addDaysToKey, currentWeekKeys, todayKey } from "@/lib/dates";
+import type { WorkoutBlock } from "@/lib/types";
 
 const DEFAULT_TARGETS = { water_oz: 64, sleep_hours: 8, protein_g: 150, calories: 2000 };
+
+function isScheduled(block: WorkoutBlock): boolean {
+  return block.title.trim().toLowerCase() !== "rest day";
+}
 
 export default async function DashboardPage() {
   const supabase = createClient();
@@ -13,13 +20,14 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
 
   const today = todayKey();
+  const todayDow = new Date().getDay();
   const historyStart = addDaysToKey(today, -90);
 
   const [
     { data: goal },
     { data: targets },
     { data: log },
-    { data: workoutDaysRaw },
+    { data: blocksRaw },
     { data: completionsRaw },
   ] = await Promise.all([
     supabase.from("goals").select("goal_text, target_date").eq("user_id", user!.id).maybeSingle(),
@@ -34,9 +42,12 @@ export default async function DashboardPage() {
       .eq("user_id", user!.id)
       .eq("log_date", today)
       .maybeSingle(),
-    supabase.from("workout_days").select("day_of_week, is_active").eq("user_id", user!.id),
     supabase
-      .from("workout_completions")
+      .from("workout_blocks")
+      .select("id, day_of_week, title, exercises")
+      .eq("user_id", user!.id),
+    supabase
+      .from("daily_workout_completions")
       .select("completion_date")
       .eq("user_id", user!.id)
       .gte("completion_date", historyStart),
@@ -44,10 +55,9 @@ export default async function DashboardPage() {
 
   const t = targets ?? DEFAULT_TARGETS;
   const l = log ?? { water_oz: 0, sleep_hours: 0, protein_g: 0, calories: 0 };
+  const blocks: WorkoutBlock[] = blocksRaw ?? [];
 
-  const activeDaysOfWeek = new Set(
-    (workoutDaysRaw ?? []).filter((d) => d.is_active).map((d) => d.day_of_week)
-  );
+  const activeDaysOfWeek = new Set(blocks.filter(isScheduled).map((b) => b.day_of_week));
   const completedDateKeys = new Set((completionsRaw ?? []).map((c) => c.completion_date));
 
   const streak = computeStreak(activeDaysOfWeek, completedDateKeys);
@@ -56,6 +66,10 @@ export default async function DashboardPage() {
     activeDaysOfWeek,
     completedDateKeys
   );
+
+  const todayBlock = blocks.find((b) => b.day_of_week === todayDow) ?? null;
+  const todayIsScheduled = todayBlock ? isScheduled(todayBlock) : false;
+  const todayDone = completedDateKeys.has(today);
 
   return (
     <div className="space-y-6">
@@ -70,7 +84,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {goal?.goal_text && (
+      {goal?.goal_text ? (
         <Link href="/goals" className="card block">
           <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
             Your goal
@@ -78,7 +92,8 @@ export default async function DashboardPage() {
           <div className="mt-1 text-gray-800">{goal.goal_text}</div>
           {goal.target_date && (
             <div className="mt-1 text-sm text-gray-500">
-              by {new Date(goal.target_date + "T00:00:00").toLocaleDateString(undefined, {
+              by{" "}
+              {new Date(goal.target_date + "T00:00:00").toLocaleDateString(undefined, {
                 month: "long",
                 day: "numeric",
                 year: "numeric",
@@ -86,8 +101,7 @@ export default async function DashboardPage() {
             </div>
           )}
         </Link>
-      )}
-      {!goal?.goal_text && (
+      ) : (
         <Link href="/goals" className="card block text-center text-brand-600">
           + Set a goal
         </Link>
@@ -106,22 +120,116 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div className="card space-y-4">
+      <div className="card space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-medium text-gray-700">Today&rsquo;s targets</h2>
-          <Link href="/daily" className="text-sm font-medium text-brand-600">
-            Log now
+          <h2 className="font-medium text-gray-700">Today&rsquo;s workout</h2>
+          <Link href="/workouts" className="text-sm font-medium text-brand-600">
+            Edit plan
           </Link>
         </div>
+
+        {todayIsScheduled && todayBlock ? (
+          <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-gray-800">{todayBlock.title}</div>
+              <div className="text-xs text-gray-500">
+                {todayBlock.exercises.length} exercise
+                {todayBlock.exercises.length === 1 ? "" : "s"}
+              </div>
+            </div>
+            <form action={toggleWorkoutCompletion}>
+              <input type="hidden" name="date" value={today} />
+              <button type="submit" className={todayDone ? "btn-primary" : "btn-secondary"}>
+                {todayDone ? "Done ✓" : "Mark done"}
+              </button>
+            </form>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">Rest day — no workout scheduled.</p>
+        )}
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium text-gray-700">Today&rsquo;s diet</h2>
+          <Link href="/diet" className="text-sm font-medium text-brand-600">
+            Edit targets
+          </Link>
+        </div>
+
         <ProgressBar label="Water" value={l.water_oz} target={t.water_oz} unit="oz" />
         <ProgressBar label="Sleep" value={l.sleep_hours} target={t.sleep_hours} unit="hrs" />
         <ProgressBar label="Protein" value={l.protein_g} target={t.protein_g} unit="g" />
         <ProgressBar label="Calories" value={l.calories} target={t.calories} unit="cal" />
-      </div>
 
-      <Link href="/workouts" className="card block text-center text-brand-600">
-        View weekly workout plan →
-      </Link>
+        <form action={saveLog} className="space-y-3 border-t border-gray-100 pt-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label" htmlFor="water_oz">
+                Water (oz)
+              </label>
+              <input
+                className="field-input"
+                inputMode="decimal"
+                type="number"
+                step="0.1"
+                min="0"
+                id="water_oz"
+                name="water_oz"
+                defaultValue={l.water_oz}
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="sleep_hours">
+                Sleep (hrs)
+              </label>
+              <input
+                className="field-input"
+                inputMode="decimal"
+                type="number"
+                step="0.1"
+                min="0"
+                id="sleep_hours"
+                name="sleep_hours"
+                defaultValue={l.sleep_hours}
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="protein_g">
+                Protein (g)
+              </label>
+              <input
+                className="field-input"
+                inputMode="decimal"
+                type="number"
+                step="1"
+                min="0"
+                id="protein_g"
+                name="protein_g"
+                defaultValue={l.protein_g}
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="calories">
+                Calories
+              </label>
+              <input
+                className="field-input"
+                inputMode="decimal"
+                type="number"
+                step="1"
+                min="0"
+                id="calories"
+                name="calories"
+                defaultValue={l.calories}
+              />
+            </div>
+          </div>
+          <button type="submit" className="btn-primary w-full">
+            Save today&rsquo;s log
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

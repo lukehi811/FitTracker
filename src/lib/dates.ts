@@ -10,6 +10,9 @@ export const DAY_NAMES = [
 
 export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+/** day_of_week values (0=Sun..6=Sat) in Monday-first display order. */
+export const MON_TO_SUN_DOW = [1, 2, 3, 4, 5, 6, 0];
+
 /** YYYY-MM-DD in the server's local time. */
 export function toDateKey(date: Date): string {
   const y = date.getFullYear();
