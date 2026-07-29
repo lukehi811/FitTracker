@@ -1,65 +1,93 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getMonthlyStats } from "@/lib/monthlyStats";
+import { CalendarMonth } from "@/components/CalendarMonth";
+import { addMonthsToKey, getMonthCalendar, isValidMonthKey } from "@/lib/calendarStats";
+import { todayKey } from "@/lib/dates";
 
-export default async function StatsPage() {
+export default async function StatsPage({
+  searchParams,
+}: {
+  searchParams: { month?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { months, blocksMigrationPending, error } = await getMonthlyStats(supabase, user!.id);
+  const today = todayKey();
+  const currentMonth = today.slice(0, 7);
+  const monthKey = isValidMonthKey(searchParams.month) ? searchParams.month : currentMonth;
+
+  const calendar = await getMonthCalendar(supabase, user!.id, monthKey);
+  const prevMonth = addMonthsToKey(monthKey, -1);
+  const nextMonth = addMonthsToKey(monthKey, 1);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Monthly consistency</h1>
-        <p className="text-sm text-gray-500">
-          Workout completion and diet-target-hit rate, month by month.
-        </p>
+        <h1 className="text-xl font-semibold">Stats</h1>
+        <p className="text-sm text-gray-500">Tap a day for details.</p>
       </div>
 
-      {error ? (
+      {calendar.error ? (
         <div className="card text-sm text-red-600">Couldn&rsquo;t load your history right now.</div>
-      ) : blocksMigrationPending ? (
+      ) : calendar.blocksMigrationPending ? (
         <div className="card text-sm text-amber-600">
           Workout scheduler isn&rsquo;t set up yet — run supabase/migrations/002_workout_blocks.sql.
         </div>
-      ) : months.length === 0 ? (
-        <div className="card text-sm text-gray-400">
-          No history yet — log a day or two, then check back here.
-        </div>
       ) : (
-        <div className="space-y-3">
-          {months.map((m) => (
-            <div key={m.monthKey} className="card space-y-3">
-              <h2 className="font-medium text-gray-800">{m.label}</h2>
+        <>
+          <div className="card">
+            <div className="flex items-center justify-between">
+              <Link
+                href={`/stats?month=${prevMonth}`}
+                aria-label="Previous month"
+                className="rounded-lg px-2 py-1 text-lg text-gray-400 hover:text-gray-600"
+              >
+                ←
+              </Link>
+              <h2 className="font-medium text-gray-800">{calendar.label}</h2>
+              <Link
+                href={`/stats?month=${nextMonth}`}
+                aria-label="Next month"
+                className="rounded-lg px-2 py-1 text-lg text-gray-400 hover:text-gray-600"
+              >
+                →
+              </Link>
+            </div>
 
+            <div className="mt-4 grid grid-cols-2 gap-3 text-center text-sm">
               <div>
-                <div className="mb-1 flex items-baseline justify-between text-sm">
-                  <span className="text-gray-600">Workouts</span>
-                  <span className="text-gray-500">
-                    {m.workout.completed}/{m.workout.scheduled} ({m.workout.pct}%)
-                  </span>
+                <div className="text-xl font-semibold text-green-600">
+                  {calendar.summary.fullCount}
                 </div>
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${m.workout.pct}%` }} />
+                <div className="text-gray-500">full days</div>
+              </div>
+              <div>
+                <div className="text-xl font-semibold text-yellow-500">
+                  {calendar.summary.partialCount}
+                </div>
+                <div className="text-gray-500">partial days</div>
+              </div>
+              <div>
+                <div className="text-xl font-semibold text-brand-600">
+                  {calendar.summary.workoutPct}%
+                </div>
+                <div className="text-gray-500">
+                  workouts ({calendar.summary.workoutCompleted}/{calendar.summary.workoutScheduled})
                 </div>
               </div>
-
               <div>
-                <div className="mb-1 flex items-baseline justify-between text-sm">
-                  <span className="text-gray-600">Diet</span>
-                  <span className="text-gray-500">
-                    {m.diet.hit}/{m.diet.total} ({m.diet.pct}%)
-                  </span>
-                </div>
-                <div className="progress-track">
-                  <div className="progress-fill bg-sky-400" style={{ width: `${m.diet.pct}%` }} />
-                </div>
+                <div className="text-xl font-semibold text-brand-600">{calendar.summary.dietPct}%</div>
+                <div className="text-gray-500">diet on target</div>
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+
+          <div className="card">
+            <CalendarMonth weeks={calendar.weeks} today={today} />
+          </div>
+        </>
       )}
     </div>
   );

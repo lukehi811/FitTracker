@@ -13,7 +13,7 @@ Stack: Next.js 14 (App Router) + TypeScript + Tailwind CSS, Supabase (Auth + Pos
 - **Workouts** — a drag-and-drop weekly scheduler: 7 blocks (Mon-Sun), each defaulting to "Rest Day." Drag a block to move it to a different day; tap a block to name it (e.g. "Push Day") and add exercises (name/sets/reps)
 - **Goals** — free-text end goal + optional target date
 - **Friends** (linked from the header) — send a request by email, accept/decline, and once accepted, view a friend's dashboard read-only (their goal/countdown, today's diet vs targets, this week's completion %, streak). No edit access to anything of theirs, ever.
-- **Stats** (linked from the Dashboard) — month-by-month workout completion % and diet-target-hit %, going back as far as you have data
+- **Stats** (linked from the Dashboard) — a calendar view, one month at a time with prev/next navigation: each day shows a status dot (empty outline = upcoming, gray = missed, half-yellow = partially hit that day's goals, green = fully hit), a summary of full/partial days and workout/diet % for the month you're viewing, and tapping a day opens its actual diet vs targets, scheduled workout, and exercises
 
 ## 1. Create a Supabase project
 
@@ -76,8 +76,8 @@ src/app/auth/                               # Supabase auth callback + signout r
 src/lib/actions/                            # server actions (form submissions + imperative calls: auth, goals, daily, workouts, friends)
 src/lib/supabase/                           # Supabase client helpers (browser, server, middleware)
 src/lib/dashboardStats.ts                   # shared stats computation — used by both the owner's Dashboard and the read-only friend view
-src/lib/monthlyStats.ts                     # month-by-month workout/diet consistency computation, used by Stats
-src/components/                             # NavBar, ProgressBar, WorkoutScheduler (drag-and-drop board + block editor modal), ExerciseChecklist
+src/lib/calendarStats.ts                    # per-day status computation (full/partial/none/future) + calendar grid layout, used by Stats
+src/components/                             # NavBar, ProgressBar, WorkoutScheduler (drag-and-drop board + block editor modal), ExerciseChecklist, TodayWorkoutCard, CalendarMonth (Stats grid + day-detail modal)
 supabase/schema.sql                         # base Postgres schema + RLS policies — run first, once
 supabase/migrations/002_workout_blocks.sql  # adds the drag-and-drop scheduler tables — run after schema.sql
 supabase/migrations/003_friends.sql         # adds friends + read-only cross-friend access — run after 002
@@ -90,6 +90,7 @@ src/middleware.ts                           # keeps Supabase session cookies fre
 - All data access goes through Supabase Row Level Security. Every table's base policy restricts rows to `auth.uid() = user_id`; the friends migration adds an *additional* read-only policy so an accepted friend can also `SELECT` (never insert/update/delete) your goals/targets/logs/workouts. Luke and Dallin never see anything of each other's beyond what's explicitly shared through an accepted friend request.
 - No charting library anywhere — dashboard/stats are plain numbers, CSS progress bars, and simple lists, per the "keep it simple" brief.
 - Streak = consecutive scheduled workout days completed, walking backward from today (today doesn't break the streak until the day is over and still unlogged). A day counts as "scheduled" if its block's title isn't "Rest Day" — renaming a block off the default is how you mark a day as a workout day.
-- A day "hits" its diet targets when every logged value (water/sleep/protein/calories) meets or exceeds its target — used for both the Dashboard's weekly count and the Stats page's monthly %.
+- A day "hits" its diet targets when every logged value (water/sleep/protein/calories) meets or exceeds its target — used for the Dashboard's weekly count and the Stats calendar alike.
+- A day's Stats status is "how many of that day's applicable goals were met": diet is always 1 applicable goal, a scheduled workout day adds a second. 0 met = missed (gray), all met = full (green), some-but-not-all = partial (yellow). A rest day only has the diet goal, so it's evaluated as full/missed only — there's no partial state for a day with just one applicable goal.
 - Drag-and-drop reordering in Workouts uses [`@dnd-kit`](https://dndkit.com/) and persists via a Postgres RPC (`reorder_workout_blocks`, added in migration 002) that reassigns all 7 days in one transaction, so swapping two days never trips a uniqueness error partway through.
 - The exercise checklist on Daily is stored in the browser's `localStorage` only, keyed by user/date/block — it's a personal "check off as you go" aid, not synced to the database or visible to friends.
