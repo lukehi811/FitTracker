@@ -1,17 +1,18 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { saveLog } from "@/lib/actions/daily";
 import { toggleWorkoutCompletion } from "@/lib/actions/workouts";
 import { ProgressBar } from "@/components/ProgressBar";
 import { computeStreak, computeWeeklyCompletion } from "@/lib/streak";
-import { addDaysToKey, currentWeekKeys, todayKey } from "@/lib/dates";
-import type { WorkoutBlock } from "@/lib/types";
-
-const DEFAULT_TARGETS = { water_oz: 64, sleep_hours: 8, protein_g: 150, calories: 2000 };
-
-function isScheduled(block: WorkoutBlock): boolean {
-  return block.title.trim().toLowerCase() !== "rest day";
-}
+import { isDietDayHit } from "@/lib/diet";
+import { isMissingTableError } from "@/lib/errors";
+import {
+  addDaysToKey,
+  currentWeekKeys,
+  daysBetweenKeys,
+  formatDateKey,
+  todayKey,
+} from "@/lib/dates";
+import { DEFAULT_TARGETS, isBlockScheduled, type DailyValues, type WorkoutBlock } from "@/lib/types";
 
 export default async function DashboardPage() {
   const supabase = createClient();
@@ -22,12 +23,16 @@ export default async function DashboardPage() {
   const today = todayKey();
   const todayDow = new Date().getDay();
   const historyStart = addDaysToKey(today, -90);
+  const weekKeys = currentWeekKeys();
+  const weekStart = weekKeys[0];
+  const elapsedWeekKeys = weekKeys.filter((k) => k <= today);
 
   const [
     { data: goal },
     { data: targets },
-    { data: log },
-    { data: blocksRaw },
+    { data: todayLog },
+    { data: weekLogsRaw },
+    { data: blocksRaw, error: blocksError },
     { data: completionsRaw },
   ] = await Promise.all([
     supabase.from("goals").select("goal_text, target_date").eq("user_id", user!.id).maybeSingle(),
@@ -43,6 +48,12 @@ export default async function DashboardPage() {
       .eq("log_date", today)
       .maybeSingle(),
     supabase
+      .from("daily_logs")
+      .select("log_date, water_oz, sleep_hours, protein_g, calories")
+      .eq("user_id", user!.id)
+      .gte("log_date", weekStart)
+      .lte("log_date", today),
+    supabase
       .from("workout_blocks")
       .select("id, day_of_week, title, exercises")
       .eq("user_id", user!.id),
@@ -54,27 +65,58 @@ export default async function DashboardPage() {
   ]);
 
   const t = targets ?? DEFAULT_TARGETS;
-  const l = log ?? { water_oz: 0, sleep_hours: 0, protein_g: 0, calories: 0 };
+  const l = todayLog ?? { water_oz: 0, sleep_hours: 0, protein_g: 0, calories: 0 };
   const blocks: WorkoutBlock[] = blocksRaw ?? [];
+  const blocksUnavailable = !!blocksError && !isMissingTableError(blocksError);
+  const blocksMigrationPending = isMissingTableError(blocksError);
 
-  const activeDaysOfWeek = new Set(blocks.filter(isScheduled).map((b) => b.day_of_week));
+  const activeDaysOfWeek = new Set(blocks.filter(isBlockScheduled).map((b) => b.day_of_week));
   const completedDateKeys = new Set((completionsRaw ?? []).map((c) => c.completion_date));
 
   const streak = computeStreak(activeDaysOfWeek, completedDateKeys);
   const { scheduled, completed, pct } = computeWeeklyCompletion(
-    currentWeekKeys(),
+    weekKeys,
     activeDaysOfWeek,
     completedDateKeys
   );
 
   const todayBlock = blocks.find((b) => b.day_of_week === todayDow) ?? null;
-  const todayIsScheduled = todayBlock ? isScheduled(todayBlock) : false;
+  const todayIsScheduled = todayBlock ? isBlockScheduled(todayBlock) : false;
   const todayDone = completedDateKeys.has(today);
+
+  const weekLogsByDate = new Map((weekLogsRaw ?? []).map((row) => [row.log_date, row as DailyValues]));
+  const dietDaysHit = elapsedWeekKeys.filter((k) => {
+    const log = weekLogsByDate.get(k);
+    return log ? isDietDayHit(log, t) : false;
+  }).length;
+
+  const catchUpDays = Array.from({ length: 7 }, (_, i) => addDaysToKey(today, -(i + 1))).map(
+    (dateKey) => {
+      const dow = new Date(`${dateKey}T00:00:00`).getDay();
+      const block = blocks.find((b) => b.day_of_week === dow) ?? null;
+      return {
+        dateKey,
+        label: formatDateKey(dateKey),
+        block,
+        isScheduled: block ? isBlockScheduled(block) : false,
+        done: completedDateKeys.has(dateKey),
+      };
+    }
+  );
+
+  let countdownText: string | null = null;
+  if (goal?.target_date) {
+    const days = daysBetweenKeys(today, goal.target_date);
+    if (days > 1) countdownText = `${days} days until ${goal.goal_text}`;
+    else if (days === 1) countdownText = `1 day until ${goal.goal_text}`;
+    else if (days === 0) countdownText = `Today's the day — ${goal.goal_text}`;
+    else countdownText = `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} past target date`;
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Today</h1>
+        <h1 className="text-xl font-semibold">Dashboard</h1>
         <p className="text-sm text-gray-500">
           {new Date().toLocaleDateString(undefined, {
             weekday: "long",
@@ -89,16 +131,10 @@ export default async function DashboardPage() {
           <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
             Your goal
           </div>
-          <div className="mt-1 text-gray-800">{goal.goal_text}</div>
-          {goal.target_date && (
-            <div className="mt-1 text-sm text-gray-500">
-              by{" "}
-              {new Date(goal.target_date + "T00:00:00").toLocaleDateString(undefined, {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </div>
+          {countdownText ? (
+            <div className="mt-1 text-gray-800">{countdownText}</div>
+          ) : (
+            <div className="mt-1 text-gray-800">{goal.goal_text}</div>
           )}
         </Link>
       ) : (
@@ -123,12 +159,18 @@ export default async function DashboardPage() {
       <div className="card space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-gray-700">Today&rsquo;s workout</h2>
-          <Link href="/workouts" className="text-sm font-medium text-brand-600">
-            Edit plan
+          <Link href="/daily" className="text-sm font-medium text-brand-600">
+            Log today
           </Link>
         </div>
 
-        {todayIsScheduled && todayBlock ? (
+        {blocksUnavailable ? (
+          <p className="text-sm text-red-600">Couldn&rsquo;t load your workout plan right now.</p>
+        ) : blocksMigrationPending ? (
+          <p className="text-sm text-amber-600">
+            Workout scheduler isn&rsquo;t set up yet — run supabase/migrations/002_workout_blocks.sql.
+          </p>
+        ) : todayIsScheduled && todayBlock ? (
           <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2.5">
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-gray-800">{todayBlock.title}</div>
@@ -137,12 +179,13 @@ export default async function DashboardPage() {
                 {todayBlock.exercises.length === 1 ? "" : "s"}
               </div>
             </div>
-            <form action={toggleWorkoutCompletion}>
-              <input type="hidden" name="date" value={today} />
-              <button type="submit" className={todayDone ? "btn-primary" : "btn-secondary"}>
-                {todayDone ? "Done ✓" : "Mark done"}
-              </button>
-            </form>
+            <span
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                todayDone ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-500"
+              }`}
+            >
+              {todayDone ? "Done ✓" : "Not done yet"}
+            </span>
           </div>
         ) : (
           <p className="text-sm text-gray-500">Rest day — no workout scheduled.</p>
@@ -151,85 +194,61 @@ export default async function DashboardPage() {
 
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-medium text-gray-700">Today&rsquo;s diet</h2>
-          <Link href="/diet" className="text-sm font-medium text-brand-600">
-            Edit targets
+          <h2 className="font-medium text-gray-700">Diet this week</h2>
+          <Link href="/daily" className="text-sm font-medium text-brand-600">
+            Log today
           </Link>
         </div>
 
-        <ProgressBar label="Water" value={l.water_oz} target={t.water_oz} unit="oz" />
-        <ProgressBar label="Sleep" value={l.sleep_hours} target={t.sleep_hours} unit="hrs" />
-        <ProgressBar label="Protein" value={l.protein_g} target={t.protein_g} unit="g" />
-        <ProgressBar label="Calories" value={l.calories} target={t.calories} unit="cal" />
+        <p className="text-sm text-gray-500">
+          {dietDaysHit} / {elapsedWeekKeys.length} day{elapsedWeekKeys.length === 1 ? "" : "s"} hit
+          all targets this week
+        </p>
 
-        <form action={saveLog} className="space-y-3 border-t border-gray-100 pt-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="field-label" htmlFor="water_oz">
-                Water (oz)
-              </label>
-              <input
-                className="field-input"
-                inputMode="decimal"
-                type="number"
-                step="0.1"
-                min="0"
-                id="water_oz"
-                name="water_oz"
-                defaultValue={l.water_oz}
-              />
-            </div>
-            <div>
-              <label className="field-label" htmlFor="sleep_hours">
-                Sleep (hrs)
-              </label>
-              <input
-                className="field-input"
-                inputMode="decimal"
-                type="number"
-                step="0.1"
-                min="0"
-                id="sleep_hours"
-                name="sleep_hours"
-                defaultValue={l.sleep_hours}
-              />
-            </div>
-            <div>
-              <label className="field-label" htmlFor="protein_g">
-                Protein (g)
-              </label>
-              <input
-                className="field-input"
-                inputMode="decimal"
-                type="number"
-                step="1"
-                min="0"
-                id="protein_g"
-                name="protein_g"
-                defaultValue={l.protein_g}
-              />
-            </div>
-            <div>
-              <label className="field-label" htmlFor="calories">
-                Calories
-              </label>
-              <input
-                className="field-input"
-                inputMode="decimal"
-                type="number"
-                step="1"
-                min="0"
-                id="calories"
-                name="calories"
-                defaultValue={l.calories}
-              />
-            </div>
-          </div>
-          <button type="submit" className="btn-primary w-full">
-            Save today&rsquo;s log
-          </button>
-        </form>
+        <div className="space-y-3 border-t border-gray-100 pt-4">
+          <ProgressBar label="Water" value={l.water_oz} target={t.water_oz} unit="oz" />
+          <ProgressBar label="Sleep" value={l.sleep_hours} target={t.sleep_hours} unit="hrs" />
+          <ProgressBar label="Protein" value={l.protein_g} target={t.protein_g} unit="g" />
+          <ProgressBar label="Calories" value={l.calories} target={t.calories} unit="cal" />
+        </div>
       </div>
+
+      {!blocksUnavailable && !blocksMigrationPending && (
+        <details className="card">
+          <summary className="cursor-pointer font-medium text-gray-700">
+            Catch up on a past day
+          </summary>
+          <p className="mt-2 text-sm text-gray-500">
+            Forgot to mark a workout done? Toggle it here.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {catchUpDays.map((day) => (
+              <li
+                key={day.dateKey}
+                className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-800">{day.label}</div>
+                  <div className="truncate text-xs text-gray-500">
+                    {day.isScheduled ? day.block?.title : "Rest day"}
+                  </div>
+                </div>
+                {day.isScheduled && (
+                  <form action={toggleWorkoutCompletion}>
+                    <input type="hidden" name="date" value={day.dateKey} />
+                    <button
+                      type="submit"
+                      className={day.done ? "btn-primary" : "btn-secondary"}
+                    >
+                      {day.done ? "Done ✓" : "Mark done"}
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

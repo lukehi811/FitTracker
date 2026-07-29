@@ -52,3 +52,19 @@ export function addDaysToKey(dateKey: string, days: number): string {
   date.setDate(date.getDate() + days);
   return toDateKey(date);
 }
+
+/** Whole calendar days from `fromKey` to `toKey` (positive if `toKey` is later). */
+export function daysBetweenKeys(fromKey: string, toKey: string): number {
+  const [fy, fm, fd] = fromKey.split("-").map(Number);
+  const [ty, tm, td] = toKey.split("-").map(Number);
+  const from = Date.UTC(fy, fm - 1, fd);
+  const to = Date.UTC(ty, tm - 1, td);
+  return Math.round((to - from) / 86400000);
+}
+
+export function formatDateKey(
+  dateKey: string,
+  options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" }
+): string {
+  return new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined, options);
+}

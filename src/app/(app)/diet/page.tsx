@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { saveTargets } from "@/lib/actions/daily";
-
-const DEFAULT_TARGETS = { water_oz: 64, sleep_hours: 8, protein_g: 150, calories: 2000 };
+import { DEFAULT_TARGETS } from "@/lib/types";
 
 export default async function DietPage() {
   const supabase = createClient();
@@ -22,7 +21,7 @@ export default async function DietPage() {
       <div>
         <h1 className="text-xl font-semibold">Diet targets</h1>
         <p className="text-sm text-gray-500">
-          Set your personal daily goals here. Log today&rsquo;s actuals from the Dashboard.
+          Set your personal daily goals here. Log today&rsquo;s actuals from the Daily tab.
         </p>
       </div>
 

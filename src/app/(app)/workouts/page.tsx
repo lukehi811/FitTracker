@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { WorkoutScheduler } from "@/components/WorkoutScheduler";
+import { isMissingTableError } from "@/lib/errors";
 import type { WorkoutBlock } from "@/lib/types";
 
 export default async function WorkoutsPage() {
@@ -14,11 +15,7 @@ export default async function WorkoutsPage() {
     .eq("user_id", user!.id)
     .order("day_of_week");
 
-  const tableMissing =
-    !!error &&
-    (error.code === "42P01" ||
-      error.code === "PGRST205" ||
-      /does not exist|schema cache/i.test(error.message));
+  const tableMissing = isMissingTableError(error);
 
   return (
     <div className="space-y-4">
